@@ -173,7 +173,6 @@ func (t *transaction) Append(_ storage.SeriesRef, ls labels.Labels, atMs int64, 
 	curMF := t.getOrCreateMetricFamily(*rKey, scope, metricName)
 
 	seriesRef := t.getSeriesRef(ls, curMF.mtype)
-	cacheRef := ls.Hash()
 	err = curMF.addSeries(seriesRef, metricName, ls, atMs, val)
 	if err != nil {
 		t.logger.Warn("failed to add datapoint", zap.Error(err), zap.String("metric_name", metricName), zap.Any("labels", ls))
@@ -182,9 +181,11 @@ func (t *transaction) Append(_ storage.SeriesRef, ls labels.Labels, atMs int64, 
 		return 0, nil
 	}
 
-	// never return errors, as that fails the whole scrape
-	// return a stable ref so Prometheus can track series staleness
-	return storage.SeriesRef(cacheRef), nil
+	// Return ref=0 to disable Prometheus scrape cache population.
+	// Non-zero refs cause the per-target scrapeCache to retain entries from
+	// churned targets indefinitely via context value references, leading to
+	// unbounded memory growth. Returning 0 matches pre-0.145.0 behavior.
+	return 0, nil
 }
 
 // detectAndStoreNativeHistogramStaleness returns true if it detects
@@ -347,9 +348,8 @@ func (t *transaction) AppendHistogram(_ storage.SeriesRef, ls labels.Labels, atM
 		return 0, nil
 	}
 
-	// never return errors, as that fails the whole scrape
-	// return ref==1 indicating that the series was added and needs staleness tracking
-	return 1, nil
+	// Return ref=0 to prevent scrape cache growth (see Append comment).
+	return 0, nil
 }
 
 func (t *transaction) AppendSTZeroSample(_ storage.SeriesRef, ls labels.Labels, atMs, stMs int64) (storage.SeriesRef, error) {
@@ -405,10 +405,10 @@ func (t *transaction) setStartTimestamp(ls labels.Labels, atMs, stMs int64) (sto
 
 	curMF := t.getOrCreateMetricFamily(*rKey, getScopeID(ls), metricName)
 
-	seriesRef := t.getSeriesRef(ls, curMF.mtype)
-	curMF.addCreationTimestamp(seriesRef, ls, atMs, stMs)
+	curMF.addCreationTimestamp(t.getSeriesRef(ls, curMF.mtype), ls, atMs, stMs)
 
-	return storage.SeriesRef(seriesRef), nil
+	// Return ref=0 to prevent scrape cache growth (see Append comment).
+	return 0, nil
 }
 
 func (*transaction) SetOptions(_ *storage.AppendOptions) {
