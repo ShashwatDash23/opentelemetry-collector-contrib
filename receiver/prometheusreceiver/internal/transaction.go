@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/exemplar"
@@ -28,6 +29,13 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/translator/prometheus"
 	mdata "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/prometheusreceiver/internal/metadata"
 )
+
+// isHighChurnJob returns true for scrape jobs whose targets churn frequently
+// (e.g. tenant pods). For these jobs, we return ref=0 from Append methods to
+// prevent the Prometheus scrapeCache from retaining entries from old targets.
+func isHighChurnJob(job string) bool {
+	return strings.HasSuffix(job, "-tenant")
+}
 
 type resourceKey struct {
 	job      string
@@ -181,11 +189,12 @@ func (t *transaction) Append(_ storage.SeriesRef, ls labels.Labels, atMs int64, 
 		return 0, nil
 	}
 
-	// Return ref=0 to disable Prometheus scrape cache population.
-	// Non-zero refs cause the per-target scrapeCache to retain entries from
-	// churned targets indefinitely via context value references, leading to
-	// unbounded memory growth. Returning 0 matches pre-0.145.0 behavior.
-	return 0, nil
+	// For jobs with high target churn, return ref=0 to prevent the Prometheus
+	// scrapeCache from retaining entries from churned targets indefinitely.
+	if isHighChurnJob(rKey.job) {
+		return 0, nil
+	}
+	return storage.SeriesRef(ls.Hash()), nil
 }
 
 // detectAndStoreNativeHistogramStaleness returns true if it detects
@@ -348,8 +357,10 @@ func (t *transaction) AppendHistogram(_ storage.SeriesRef, ls labels.Labels, atM
 		return 0, nil
 	}
 
-	// Return ref=0 to prevent scrape cache growth (see Append comment).
-	return 0, nil
+	if isHighChurnJob(rKey.job) {
+		return 0, nil
+	}
+	return 1, nil
 }
 
 func (t *transaction) AppendSTZeroSample(_ storage.SeriesRef, ls labels.Labels, atMs, stMs int64) (storage.SeriesRef, error) {
@@ -405,10 +416,13 @@ func (t *transaction) setStartTimestamp(ls labels.Labels, atMs, stMs int64) (sto
 
 	curMF := t.getOrCreateMetricFamily(*rKey, getScopeID(ls), metricName)
 
-	curMF.addCreationTimestamp(t.getSeriesRef(ls, curMF.mtype), ls, atMs, stMs)
+	seriesRef := t.getSeriesRef(ls, curMF.mtype)
+	curMF.addCreationTimestamp(seriesRef, ls, atMs, stMs)
 
-	// Return ref=0 to prevent scrape cache growth (see Append comment).
-	return 0, nil
+	if isHighChurnJob(rKey.job) {
+		return 0, nil
+	}
+	return storage.SeriesRef(seriesRef), nil
 }
 
 func (*transaction) SetOptions(_ *storage.AppendOptions) {
