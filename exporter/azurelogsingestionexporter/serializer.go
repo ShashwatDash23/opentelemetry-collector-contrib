@@ -4,41 +4,23 @@
 package azurelogsingestionexporter // import "github.com/open-telemetry/opentelemetry-collector-contrib/exporter/azurelogsingestionexporter"
 
 import (
-	"os"
 	"time"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
-const (
-	envClusterID   = "INTRUSION_CRDB_CLUSTER_ID"
-	envClusterName = "CLUSTER_NAME"
-)
-
 func serializeLogRecord(record plog.LogRecord, resource pcommon.Resource) map[string]any {
-	entry := map[string]any{
-		"TimeGenerated": formatTimestamp(record.Timestamp()),
-		"Severity":      record.SeverityText(),
-		"Message":       record.Body().AsString(),
+	var entry map[string]any
+
+	raw := record.Body().AsRaw()
+	if m, ok := raw.(map[string]any); ok {
+		entry = m
+	} else {
+		entry = map[string]any{"message": record.Body().AsString()}
 	}
 
-	if v, ok := record.Attributes().Get("channel"); ok {
-		entry["Channel"] = v.AsString()
-	}
-
-	if v, ok := record.Attributes().Get("node_id"); ok {
-		entry["NodeID"] = v.AsString()
-	}
-
-	if v := os.Getenv(envClusterID); v != "" {
-		entry["CloudClusterID"] = v
-	}
-
-	if v := os.Getenv(envClusterName); v != "" {
-		entry["CloudClusterName"] = v
-	}
-
+	entry["TimeGenerated"] = formatTimestamp(record.Timestamp())
 	return entry
 }
 
