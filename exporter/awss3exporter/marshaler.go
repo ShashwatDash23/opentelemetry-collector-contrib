@@ -64,6 +64,11 @@ func newMarshaler(mType MarshalerType, logger *zap.Logger) (marshaler, error) {
 		marshaler.logsMarshaler = &exportbodyMarshaler
 		marshaler.fileFormat = exportbodyMarshaler.format()
 		marshaler.IsCompressed = false
+	case Attrs:
+		attrsM := newAttrsMarshaler()
+		marshaler.logsMarshaler = &attrsM
+		marshaler.fileFormat = attrsM.format()
+		marshaler.IsCompressed = false
 	default:
 		return nil, ErrUnknownMarshaler
 	}

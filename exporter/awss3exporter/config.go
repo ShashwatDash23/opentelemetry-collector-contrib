@@ -77,6 +77,7 @@ const (
 	OtlpJSON     MarshalerType = "otlp_json"
 	SumoIC       MarshalerType = "sumo_ic"
 	Body         MarshalerType = "body"
+	Attrs        MarshalerType = "attrs"
 )
 
 // ResourceAttrsToS3 defines the mapping of S3 uploading configuration values to resource attribute values.
